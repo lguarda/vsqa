@@ -1,0 +1,12 @@
+{
+  "type": "code",
+  "modid": "vsqa",
+  "name": "Vintagestory QA",
+  "version": "0.1.0",
+  "networkVersion": "0.1.0",
+  "description": "This mod is for testing purposes it can instrument vintagestory client & server to test other mod features",
+  "authors": [ "lguarda" ],
+  "side": "Universal",
+  "requiredOnClient": true,
+  "requiredOnServer": true
+}
