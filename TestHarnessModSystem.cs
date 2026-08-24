@@ -15,16 +15,25 @@ public class TestHarnessModSystem : ModSystem {
     public override bool ShouldLoad(EnumAppSide side) => side == EnumAppSide.Server;
 
     private ICoreServerAPI sapi;
+    private AckTracker ackTracker = new AckTracker();
 
     public BlockPos SpawnRelative(int dx, int dy, int dz) => sapi.World.DefaultSpawnPosition.AsBlockPos.AddCopy(dx, dy,
                                                                                                                 dz);
 
+    private void OnAck(IPlayer fromPlayer, AckMessage msg) {
+        var elapsed = sapi.World.ElapsedMilliseconds;
+        sapi.Logger.Notification($"OMG RECIEV ACK {msg.RequestId}  {elapsed}");
+        ackTracker.Complete(msg.RequestId);
+    }
     public override void StartServerSide(ICoreServerAPI api) {
         sapi = api;
 
         serverChannel = api.Network.RegisterChannel("testharness")
+        .RegisterMessageType<AckMessage>()
         .RegisterMessageType<SetLookMessage>()
-        .RegisterMessageType<KeyAction>();
+        .RegisterMessageType<KeyAction>()
+        //.SetMessageHandler<AckMessage>((fromPlayer, msg) => ackTracker.Complete(msg.RequestId));
+        .SetMessageHandler<AckMessage>(OnAck);
 
         sapi.ChatCommands.Create("runtests")
             .WithDescription("Runs all discovered ModTests")
@@ -56,7 +65,7 @@ public class TestHarnessModSystem : ModSystem {
     }
 
     private async Task RunTestsAsync(TextCommandCallingArgs args) {
-        var results = await TestRunner.RunAll(sapi, serverChannel);
+        var results = await TestRunner.RunAll(sapi, serverChannel, ackTracker);
 
         foreach (var (name, passed, logs) in results) {
             string status = passed ? "PASS" : "FAIL";

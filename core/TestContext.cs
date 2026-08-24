@@ -13,13 +13,15 @@ public class TestContext
 {
     private readonly ICoreServerAPI sapi;
     public List<string> Logs = new();
+    private AckTracker ackTracker;
 
     private readonly IServerNetworkChannel channel;
 
-    public TestContext(ICoreServerAPI sapi, IServerNetworkChannel channel)
+    public TestContext(ICoreServerAPI sapi, IServerNetworkChannel channel, AckTracker ackTracker)
     {
         this.sapi = sapi;
         this.channel = channel;
+        this.ackTracker = ackTracker;
     }
 
     public BlockPos SpawnRelative(int dx, int dy, int dz) =>
@@ -103,6 +105,12 @@ public class TestContext
         return Task.CompletedTask;
     }
 
+    public Task ReleaseAllKey() {
+        var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
+        if (player == null) { Fail("No online player to rotate"); return Task.CompletedTask; }
+        channel.SendPacket(new KeyAction(true), player);
+        return Task.CompletedTask;
+    }
     public Task SendKey(GlKeys key, bool keyUp) {
         try
         {
@@ -118,36 +126,43 @@ public class TestContext
         return Task.CompletedTask;
     }
 
-    private void SendLook(IServerPlayer player, float yaw, float pitch)
+    private async Task SendLook(IServerPlayer player, float yaw, float pitch, int timeoutMs = 2000)
     {
-        try
-        {
-            Log($"OMG 5 {channel}");
-            channel.SendPacket(new SetLookMessage { Yaw = yaw, Pitch = pitch }, player);
-            Log("OMG 4");
-        }
-        catch (Exception ex)
-        {
-            Log($"Packet send failed: {ex}");
-        }
+        var elapsed = sapi.World.ElapsedMilliseconds;
+        int id = ackTracker.Register(out var tcs);
+
+        sapi.Logger.Notification($"OMG Send LOOK {id} {elapsed}");
+        channel.SendPacket(new SetLookMessage { RequestId = id, Yaw = yaw, Pitch = pitch }, player);
+
+        var winner = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs));
+        sapi.Logger.Notification($"OMG ACK LOOK {id} {sapi.World.ElapsedMilliseconds}");
+        if (winner != tcs.Task)
+            Fail("LookAt ack timed out");
     }
 
-    public Task LookAt(float yaw, float pitch)
+    public async Task LookAt(float yaw, float pitch)
     {
-        Log("OMG 1");
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
-        Log("OMG 2");
-        if (player == null) { Fail("No online player to rotate"); return Task.CompletedTask; }
-        Log("OMG 3");
-
-        SendLook(player, yaw, pitch);
-        return Task.CompletedTask;
+        if (player == null) { Fail("No online player to rotate"); return; }
+        await SendLook(player, yaw, pitch);
     }
 
-    public Task LookAtBlock(BlockPos targetPos)
+//     private async Task SendAndWait<T>(IServerPlayer player, T message, int timeoutMs = 2000) where T : IAckable
+// {
+//     int id = ackTracker.Register(out var tcs);
+//     message.RequestId = id;
+//     channel.SendPacket(message, player);
+//
+//     var winner = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs));
+//     if (winner != tcs.Task)
+//         SoftAssert(false, $"{typeof(T).Name} ack timed out");
+// }
+
+
+    public async Task LookAtBlock(BlockPos targetPos)
     {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
-        if (player == null) { Fail("No online player to rotate"); return Task.CompletedTask; }
+        if (player == null) { Fail("No online player to rotate"); return; }
 
         var eyePos = player.Entity.Pos.XYZ.Add(0, player.Entity.LocalEyePos.Y, 0);
         var target = targetPos.ToVec3d().Add(0.5, 0.5, 0.5);
@@ -160,8 +175,7 @@ public class TestContext
         float yaw = (float)Math.Atan2(dx, dz);
         float pitch = (float)(Math.PI - Math.Atan2(dy, horizDist));
 
-        SendLook(player, yaw, pitch);
-        return Task.CompletedTask;
+        await SendLook(player, yaw, pitch);
     }
     public Task Wait(int ms) => Task.Delay(ms);
     public void Log(string msg) => Logs.Add(msg);

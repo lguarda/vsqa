@@ -8,16 +8,19 @@ namespace TestHarnessMod
 {
     public class TestHarnessClientModSystem : ModSystem
     {
+
         public override bool ShouldLoad(EnumAppSide side) => side == EnumAppSide.Client;
 
         private ICoreClientAPI capi;
         private KeyStateSimulator keySimulator;
+        private IClientNetworkChannel channel;
 
         public override void StartClientSide(ICoreClientAPI capi)
         {
             this.capi = capi;
             keySimulator = new KeyStateSimulator(capi);
-            capi.Network.RegisterChannel("testharness")
+            channel = capi.Network.RegisterChannel("testharness")
+                .RegisterMessageType<AckMessage>()
                 .RegisterMessageType<SetLookMessage>()
                 .SetMessageHandler<SetLookMessage>(OnSetLook)
                 .RegisterMessageType<KeyAction>()
@@ -37,6 +40,11 @@ namespace TestHarnessMod
             capi.ShowChatMessage($"OMG before Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
             capi.Logger.Notification($"OMG before Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
 
+            var elapsed = capi.World.ElapsedMilliseconds;
+            capi.Logger.Notification($"OMG SEND ACK {msg.RequestId} {elapsed}");
+            channel.SendPacket(new AckMessage { RequestId = msg.RequestId });
+            capi.Logger.Notification($"OMG SEND ACK {msg.RequestId}");
+
 
             //entity.Pos.Yaw = msg.Yaw;
             //capi.ShowChatMessage($"OMG after Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
@@ -46,8 +54,13 @@ namespace TestHarnessMod
 
         private void OnKeyAction(KeyAction msg)
         {
-            //capi.ShowChatMessage("OMG let's go");
-            keySimulator.SetFakeKeyState((GlKeys)msg.KeyCode, msg.KeyUp);
+            if (msg.ReleaseAll) {
+                keySimulator.ReleaseAllKeys();
+            }
+            else {
+                capi.ShowChatMessage($"OMG let's go {msg.KeyCode}, {msg.KeyUp}");
+                keySimulator.SetFakeKeyState((GlKeys)msg.KeyCode, msg.KeyUp);
+            }
             //capi.ShowChatMessage($"client button:{EnumMouseButton.Button5}, state: {msg.KeyUp}");
             //capi.Logger.Notification($"client button:{EnumMouseButton.Button5}, state: {msg.KeyUp}");
             //MouseButton(500, 300, EnumMouseButton.Button5, msg.KeyUp);

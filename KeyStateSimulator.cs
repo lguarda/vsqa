@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Reflection;
 using Vintagestory.API.Client;
 using Vintagestory.API.Common;
@@ -10,11 +11,13 @@ public class KeyStateSimulator
     private readonly object hotkeyManager;
     private readonly MethodInfo triggerHotKeyMethod;
 
+    // Track all actively simulated pressed keys for quick teardown
+    private readonly HashSet<GlKeys> currentlyPressedKeys = new HashSet<GlKeys>();
+
     public KeyStateSimulator(ICoreClientAPI capi)
     {
         this.capi = capi;
 
-        // Fetch ScreenManager.hotkeyManager
         Type screenManagerType = Type.GetType("Vintagestory.Client.ScreenManager, VintagestoryLib")
             ?? throw new Exception("ScreenManager not found");
 
@@ -34,23 +37,36 @@ public class KeyStateSimulator
     }
 
     /// <summary>
-    /// Fakes a physical key press or release and holds state across frames.
+    /// Fakes a physical key press (isKeyUp = false) or release (isKeyUp = true).
     /// </summary>
     public void SetFakeKeyState(GlKeys key, bool isKeyUp)
     {
         int keyCode = (int)key;
 
-        // 1. Maintain low-level raw key state (prevents game loop reset)
-        if (capi.Input.KeyboardKeyState != null)
+        // Track internal state for ReleaseAllKeys
+        if (!isKeyUp)
         {
-            capi.Input.KeyboardKeyState[keyCode] = !isKeyUp;
+            currentlyPressedKeys.Add(key);
         }
+        else
+        {
+            currentlyPressedKeys.Remove(key);
+        }
+
+        // 1. Maintain low-level raw key state arrays
+        if (capi.Input.KeyboardKeyState != null)
+            capi.Input.KeyboardKeyState[keyCode] = !isKeyUp;
+
+        if (capi.Input.KeyboardKeyStateRaw != null)
+            capi.Input.KeyboardKeyStateRaw[keyCode] = !isKeyUp;
+
+        UpdateInputInSlot(keyCode, !isKeyUp);
 
         // 2. Build KeyEvent
         var keyEvent = new KeyEvent
         {
             KeyCode = keyCode,
-            KeyChar = '\0',
+            KeyChar = (char)keyCode,
             CtrlPressed = false,
             ShiftPressed = false,
             AltPressed = false,
@@ -58,42 +74,144 @@ public class KeyStateSimulator
             Handled = false
         };
 
-        // 3. Keep internal HotkeyManager.PressedHotkeys in sync
-        SyncPressedHotkeysList(keyCode, isKeyUp);
+        // 3. Find target hotkeys inside capi.Input.HotKeys
+        var targetHotKeys = FindHotKeysFromInputApi(key, keyCode);
 
-        // 4. Trigger initial down/up invocation
-        triggerHotKeyMethod.Invoke(hotkeyManager, new object[]
+        // 4. Force state on individual HotKey objects before invocation
+        foreach (var hk in targetHotKeys)
         {
-            keyEvent,
-            capi.World,
-            capi.World.Player,
-            true,     // allowCharacterControls
-            isKeyUp   // keyUp
-        });
+            SetHotKeyIsDown(hk, !isKeyUp);
+        }
+
+        // 5. Invoke TriggerHotKey
+        try
+        {
+            triggerHotKeyMethod.Invoke(hotkeyManager, new object[]
+            {
+                keyEvent,
+                capi.World,
+                capi.World.Player,
+                true,
+                isKeyUp
+            });
+        }
+        catch (Exception ex)
+        {
+            capi.Logger.Error($"[KeySim] Error during TriggerHotKey: {ex}");
+        }
+
+        // 6. Clean up PressedHotkeys list
+        foreach (var hk in targetHotKeys)
+        {
+            SyncPressedHotkeysList(hk, isKeyUp);
+        }
     }
 
-    private void SyncPressedHotkeysList(int keyCode, bool isKeyUp)
+    /// <summary>
+    /// Releases all keys currently held down by the simulator, plus resets raw array states.
+    /// Call this in your NUnit [TearDown] or test cleanup.
+    /// </summary>
+    public void ReleaseAllKeys()
     {
-        // Access HotkeyManager.HotKeys (Dictionary<string, HotKey>)
-        PropertyInfo hotkeysProp = hotkeyManager.GetType().GetProperty("HotKeys", BindingFlags.Instance | BindingFlags.Public);
-        var hotkeys = hotkeysProp?.GetValue(hotkeyManager) as IDictionary;
-        if (hotkeys == null) return;
-
-        // Find the HotKey associated with this GlKey
-        object targetHotKey = null;
-        foreach (DictionaryEntry entry in hotkeys)
+        // 1. Release all tracked simulated keys through normal key-up flow
+        var activeKeys = new List<GlKeys>(currentlyPressedKeys);
+        foreach (var key in activeKeys)
         {
-            PropertyInfo mappingProp = entry.Value.GetType().GetProperty("CurrentMapping", BindingFlags.Instance | BindingFlags.Public);
-            if (mappingProp?.GetValue(entry.Value) is KeyCombination combo && combo.KeyCode == keyCode)
+            SetFakeKeyState(key, isKeyUp: true);
+        }
+        currentlyPressedKeys.Clear();
+
+        // 2. Hard-reset raw key state arrays across all slots as a extra fallback
+        if (capi.Input.KeyboardKeyState != null)
+        {
+            Array.Clear(capi.Input.KeyboardKeyState, 0, capi.Input.KeyboardKeyState.Length);
+        }
+
+        if (capi.Input.KeyboardKeyStateRaw != null)
+        {
+            Array.Clear(capi.Input.KeyboardKeyStateRaw, 0, capi.Input.KeyboardKeyStateRaw.Length);
+        }
+
+        // 3. Clear InSlot arrays
+        try
+        {
+            PropertyInfo inSlotProp = capi.Input.GetType().GetProperty("InSlot", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (inSlotProp?.GetValue(capi.Input) is bool[] inSlotArray)
             {
-                targetHotKey = entry.Value;
-                break;
+                Array.Clear(inSlotArray, 0, inSlotArray.Length);
+            }
+        }
+        catch { /* ignore */ }
+
+        // 4. Clear any lingering PressedHotkeys in HotkeyManager & InputManager
+        ClearPressedHotkeysList(hotkeyManager);
+        ClearPressedHotkeysList(capi.Input);
+    }
+
+    private List<object> FindHotKeysFromInputApi(GlKeys key, int keyCode)
+    {
+        var list = new List<object>();
+        var hotkeys = capi.Input.HotKeys;
+        if (hotkeys == null) return list;
+
+        string keyEnumStr = key.ToString();
+
+        foreach (KeyValuePair<string, HotKey> entry in hotkeys)
+        {
+            if (entry.Value == null) continue;
+
+            string dictKey = entry.Key ?? "";
+            HotKey hkObj = entry.Value;
+
+            string codeVal = hkObj.Code ?? "";
+            KeyCombination combo = hkObj.CurrentMapping;
+
+            bool isMatch = false;
+
+            if (dictKey.Equals(keyEnumStr, StringComparison.OrdinalIgnoreCase)) isMatch = true;
+            if (codeVal.Equals(keyEnumStr, StringComparison.OrdinalIgnoreCase)) isMatch = true;
+            if (combo != null && (combo.KeyCode == keyCode || combo.SecondKeyCode == keyCode)) isMatch = true;
+
+            if (isMatch)
+            {
+                list.Add(hkObj);
             }
         }
 
-        if (targetHotKey == null) return;
+        return list;
+    }
 
-        // Mutate PressedHotkeys list so VS considers the hotkey pressed during tick updates
+    private void UpdateInputInSlot(int keyCode, bool isPressed)
+    {
+        try
+        {
+            PropertyInfo inSlotProp = capi.Input.GetType().GetProperty("InSlot", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            if (inSlotProp?.GetValue(capi.Input) is bool[] inSlotArray && keyCode < inSlotArray.Length)
+            {
+                inSlotArray[keyCode] = isPressed;
+            }
+        }
+        catch { /* ignore */ }
+    }
+
+    private void SetHotKeyIsDown(object hotKeyObj, bool isDown)
+    {
+        Type t = hotKeyObj.GetType();
+        PropertyInfo prop = t.GetProperty("IsDown", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (prop != null && prop.CanWrite)
+        {
+            prop.SetValue(hotKeyObj, isDown);
+        }
+
+        FieldInfo field = t.GetField("IsDown", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (field != null)
+        {
+            field.SetValue(hotKeyObj, isDown);
+        }
+    }
+
+    private void SyncPressedHotkeysList(object targetHotKey, bool isKeyUp)
+    {
         FieldInfo pressedField = hotkeyManager.GetType().GetField("PressedHotkeys", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
         if (pressedField?.GetValue(hotkeyManager) is IList pressedList)
         {
@@ -103,8 +221,37 @@ public class KeyStateSimulator
             }
             else
             {
-                pressedList.Remove(targetHotKey);
+                while (pressedList.Contains(targetHotKey))
+                {
+                    pressedList.Remove(targetHotKey);
+                }
             }
+        }
+
+        FieldInfo inputPressedField = capi.Input.GetType().GetField("PressedHotkeys", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (inputPressedField?.GetValue(capi.Input) is IList inputPressedList)
+        {
+            if (!isKeyUp)
+            {
+                if (!inputPressedList.Contains(targetHotKey)) inputPressedList.Add(targetHotKey);
+            }
+            else
+            {
+                while (inputPressedList.Contains(targetHotKey))
+                {
+                    inputPressedList.Remove(targetHotKey);
+                }
+            }
+        }
+    }
+
+    private void ClearPressedHotkeysList(object targetContainer)
+    {
+        if (targetContainer == null) return;
+        FieldInfo pressedField = targetContainer.GetType().GetField("PressedHotkeys", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (pressedField?.GetValue(targetContainer) is IList pressedList)
+        {
+            pressedList.Clear();
         }
     }
 }

@@ -22,12 +22,14 @@ public class ExampleBlockPlaceTest : ModTest
         await ctx.GiveItem("game:pickaxe-steel", 2);
         await ctx.GiveItem("game:knife-generic-steel", 3);
         await ctx.GiveItem("game:axe-felling-steel", 4);
+        await ctx.GiveItem("game:torch-basic-lit-up", 5);
 
         string[] tools = [
         "game:shovel-steel",
         "game:knife-generic-steel",
         "game:axe-felling-steel",
         "game:pickaxe-steel",
+        "game:torch-basic-lit-up",
         ];
         await ctx.SendKey(GlKeys.R, false);
         string[] blocks = [
@@ -35,9 +37,10 @@ public class ExampleBlockPlaceTest : ModTest
             "game:tallgrass-medium-free",
             "game:log-placed-oak-ud",
             "game:crackedrock-andesite",
+            "game:torch-basic-extinct-up",
             ];
 
-        for (int i = 0; i < 5; i++) 
+        for (int i = 0; i < 5; i++)
         {
             var pos = ctx.SpawnRelative(0, 0, i); // adjust via SpawnRelative if you added that helper
             var bpos = ctx.SpawnRelative(2, 0, i); // adjust via SpawnRelative if you added that helper
@@ -45,11 +48,13 @@ public class ExampleBlockPlaceTest : ModTest
             await ctx.Teleport(pos);
             await ctx.Wait(100);
             await ctx.LookAtBlock(bpos);
-            await ctx.Wait(100);
+            await ctx.Wait(50);
             await ctx.AssertPlayerSlot(tools[i]);
             await ctx.Wait(1000);
         }
-        await ctx.SendKey(GlKeys.R, true);
+        await ctx.Wait(1000);
+        await ctx.ReleaseAllKey();
+        //await ctx.SendKey(GlKeys.R, true);
         //await ctx.GiveItem("game:forestfloor-2", 0);
         //await ctx.SetTimeOfDay(9f);
         //await ctx.Wait(3000);
