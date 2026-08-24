@@ -18,6 +18,7 @@ namespace TestHarnessMod
         public override void StartClientSide(ICoreClientAPI capi)
         {
             this.capi = capi;
+            Logger.capi = capi;
             keySimulator = new KeyStateSimulator(capi);
             channel = capi.Network.RegisterChannel("testharness")
                 .RegisterMessageType<AckMessage>()
@@ -27,46 +28,39 @@ namespace TestHarnessMod
                 .SetMessageHandler<KeyAction>(OnKeyAction);
 
         }
-
+        private void AckIt(IAckable msg) {
+            if (msg.RequestId != 0) {
+                channel.SendPacket(new AckMessage { RequestId = msg.RequestId });
+            }
+        }
         private void OnSetLook(SetLookMessage msg)
         {
             var entity = capi.World.Player.Entity;
-            capi.ShowChatMessage($"OMG before Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
-            capi.Logger.Notification($"OMG before Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
+            // I think this one works it bugged buffore
+            // becaise set look after without delay reset this
+            // TODO TRY IT OUT OR REMOVE THIS COMMENT
             //capi.Input.MousePitch = msg.Pitch;
             capi.Input.MouseYaw = msg.Yaw;
             entity.Pos.Pitch = msg.Pitch;
 
-            capi.ShowChatMessage($"OMG before Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
-            capi.Logger.Notification($"OMG before Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
-
             var elapsed = capi.World.ElapsedMilliseconds;
-            capi.Logger.Notification($"OMG SEND ACK {msg.RequestId} {elapsed}");
-            channel.SendPacket(new AckMessage { RequestId = msg.RequestId });
-            capi.Logger.Notification($"OMG SEND ACK {msg.RequestId}");
+            AckIt(msg);
 
-
-            //entity.Pos.Yaw = msg.Yaw;
-            //capi.ShowChatMessage($"OMG after Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
-            //capi.Logger.Notification($"OMG after Yaw:{entity.Pos.Yaw}|{entity.WalkYaw} Pitch:{entity.Pos.Pitch}");
-            //entity.ServerPos.Yaw = msg.Yaw;
         }
 
         private void OnKeyAction(KeyAction msg)
         {
             if (msg.ReleaseAll) {
+                Logger.clog($"Release all key press");
                 keySimulator.ReleaseAllKeys();
             }
             else {
-                capi.ShowChatMessage($"OMG let's go {msg.KeyCode}, {msg.KeyUp}");
+                Logger.clog($"Fake key:{msg.KeyCode} up:{msg.KeyUp}", true);
                 keySimulator.SetFakeKeyState((GlKeys)msg.KeyCode, msg.KeyUp);
             }
-            //capi.ShowChatMessage($"client button:{EnumMouseButton.Button5}, state: {msg.KeyUp}");
-            //capi.Logger.Notification($"client button:{EnumMouseButton.Button5}, state: {msg.KeyUp}");
-            //MouseButton(500, 300, EnumMouseButton.Button5, msg.KeyUp);
-            //MouseButton(500, 300, EnumMouseButton.Left, msg.KeyUp);
         }
 
+        // Don't work at all
         private void MouseButton(
             int x,
             int y,

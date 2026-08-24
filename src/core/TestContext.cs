@@ -13,17 +13,23 @@ public class TestContext
 {
     private readonly ICoreServerAPI sapi;
     public List<string> Logs = new();
-    private AckTracker ackTracker;
+    private AckMsgTracker ackTracker;
 
     private readonly IServerNetworkChannel channel;
 
-    public TestContext(ICoreServerAPI sapi, IServerNetworkChannel channel, AckTracker ackTracker)
+    public TestContext(ICoreServerAPI sapi, IServerNetworkChannel channel, AckMsgTracker ackTracker)
     {
         this.sapi = sapi;
         this.channel = channel;
         this.ackTracker = ackTracker;
     }
 
+    private async Task SendLook(IServerPlayer player, float yaw, float pitch, int timeoutMs = 2000)
+    {
+        await SendPacketWithAck(channel, new SetLookMessage { Yaw = yaw, Pitch = pitch }, player);
+    }
+
+    // Helper to get Block pos from world coordinate
     public BlockPos SpawnRelative(int dx, int dy, int dz) =>
         sapi.World.DefaultSpawnPosition.AsBlockPos.AddCopy(dx, dy, dz);
 
@@ -75,6 +81,19 @@ public class TestContext
         return Task.CompletedTask;
     }
 
+    // TODO move all setup into separeted stuff from assert/Task
+    public ICoreServerAPI GetSapi() {
+        return sapi;
+    }
+    public IServerPlayer GetPlayer() {
+        return sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
+    }
+
+    public void SetPlayerActiveSlot(int slotNumber) {
+        var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
+        player?.InventoryManager.ActiveHotbarSlotNumber = slotNumber;
+    }
+
     public Task<bool> AssertPlayerSlot(string expectedCode) {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
         if (player == null) { Fail("No online player"); return Task.FromResult(false); }
@@ -111,6 +130,7 @@ public class TestContext
         channel.SendPacket(new KeyAction(true), player);
         return Task.CompletedTask;
     }
+
     public Task SendKey(GlKeys key, bool keyUp) {
         try
         {
@@ -126,43 +146,33 @@ public class TestContext
         return Task.CompletedTask;
     }
 
-    private async Task SendLook(IServerPlayer player, float yaw, float pitch, int timeoutMs = 2000)
+    // Todo move this out? maybe i will need this for client as well
+    public async Task<bool> SendPacketWithAck<T>(IServerNetworkChannel channel, T message, IServerPlayer player, int timeoutMs = 2000) where T : IAckable
     {
-        var elapsed = sapi.World.ElapsedMilliseconds;
         int id = ackTracker.Register(out var tcs);
-
-        sapi.Logger.Notification($"OMG Send LOOK {id} {elapsed}");
-        channel.SendPacket(new SetLookMessage { RequestId = id, Yaw = yaw, Pitch = pitch }, player);
+        message.RequestId = id;
+        channel.SendPacket(message, player);
 
         var winner = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs));
-        sapi.Logger.Notification($"OMG ACK LOOK {id} {sapi.World.ElapsedMilliseconds}");
-        if (winner != tcs.Task)
-            Fail("LookAt ack timed out");
+            if (winner != tcs.Task)
+        {
+            Fail($"{typeof(T).Name} ack timed out");
+            return false;
+        }
+        return true;
     }
 
     public async Task LookAt(float yaw, float pitch)
     {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
-        if (player == null) { Fail("No online player to rotate"); return; }
+        if (player == null) { Fail("No player to rotate"); return; }
         await SendLook(player, yaw, pitch);
     }
-
-//     private async Task SendAndWait<T>(IServerPlayer player, T message, int timeoutMs = 2000) where T : IAckable
-// {
-//     int id = ackTracker.Register(out var tcs);
-//     message.RequestId = id;
-//     channel.SendPacket(message, player);
-//
-//     var winner = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs));
-//     if (winner != tcs.Task)
-//         SoftAssert(false, $"{typeof(T).Name} ack timed out");
-// }
-
 
     public async Task LookAtBlock(BlockPos targetPos)
     {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
-        if (player == null) { Fail("No online player to rotate"); return; }
+        if (player == null) { Fail("No player to rotate"); return; }
 
         var eyePos = player.Entity.Pos.XYZ.Add(0, player.Entity.LocalEyePos.Y, 0);
         var target = targetPos.ToVec3d().Add(0.5, 0.5, 0.5);
@@ -178,6 +188,8 @@ public class TestContext
         await SendLook(player, yaw, pitch);
     }
     public Task Wait(int ms) => Task.Delay(ms);
+
+    // TODO REFACTO THIS AND OUTPUT TAP FORMAT
     public void Log(string msg) => Logs.Add(msg);
     public void Fail(string reason) { Logs.Add("FAIL: " + reason); throw new TestFailedException(reason); }
 }

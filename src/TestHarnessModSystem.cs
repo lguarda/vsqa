@@ -15,24 +15,24 @@ public class TestHarnessModSystem : ModSystem {
     public override bool ShouldLoad(EnumAppSide side) => side == EnumAppSide.Server;
 
     private ICoreServerAPI sapi;
-    private AckTracker ackTracker = new AckTracker();
+    private AckMsgTracker ackTracker = new AckMsgTracker();
 
     public BlockPos SpawnRelative(int dx, int dy, int dz) => sapi.World.DefaultSpawnPosition.AsBlockPos.AddCopy(dx, dy,
                                                                                                                 dz);
 
     private void OnAck(IPlayer fromPlayer, AckMessage msg) {
         var elapsed = sapi.World.ElapsedMilliseconds;
-        sapi.Logger.Notification($"OMG RECIEV ACK {msg.RequestId}  {elapsed}");
+        Logger.slog($"msg ack:{msg.RequestId} ms:{elapsed}");
         ackTracker.Complete(msg.RequestId);
     }
     public override void StartServerSide(ICoreServerAPI api) {
         sapi = api;
+        Logger.sapi = api;
 
         serverChannel = api.Network.RegisterChannel("testharness")
         .RegisterMessageType<AckMessage>()
         .RegisterMessageType<SetLookMessage>()
         .RegisterMessageType<KeyAction>()
-        //.SetMessageHandler<AckMessage>((fromPlayer, msg) => ackTracker.Complete(msg.RequestId));
         .SetMessageHandler<AckMessage>(OnAck);
 
         sapi.ChatCommands.Create("runtests")
@@ -40,23 +40,23 @@ public class TestHarnessModSystem : ModSystem {
             .RequiresPrivilege(Privilege.controlserver)
             .HandleWith(OnRunTests);
 
-        sapi.ChatCommands.Create("debugplace")
-            .WithDescription("Raw block placement debug, no harness involved")
-            .RequiresPrivilege(Privilege.controlserver)
-            .HandleWith(args => {
-                var pos = SpawnRelative(0, 0, 5);
+        //sapi.ChatCommands.Create("debugplace")
+        //    .WithDescription("Raw block placement debug, no harness involved")
+        //    .RequiresPrivilege(Privilege.controlserver)
+        //    .HandleWith(args => {
+        //        var pos = SpawnRelative(0, 0, 5);
 
-                var block = sapi.World.GetBlock(new AssetLocation("game:forestfloor-2"));
+        //        var block = sapi.World.GetBlock(new AssetLocation("game:forestfloor-2"));
 
-                sapi.Logger.Notification($"Resolved block: id={block?.Id}, code={block?.Code}");
+        //        sapi.Logger.Notification($"Resolved block: id={block?.Id}, code={block?.Code}");
 
-                sapi.World.BlockAccessor.SetBlock(block.Id, pos);
+        //        sapi.World.BlockAccessor.SetBlock(block.Id, pos);
 
-                var readback = sapi.World.BlockAccessor.GetBlock(pos);
-                sapi.Logger.Notification($"Immediate readback: {readback?.Code} {pos}");
+        //        var readback = sapi.World.BlockAccessor.GetBlock(pos);
+        //        sapi.Logger.Notification($"Immediate readback: {readback?.Code} {pos}");
 
-                return TextCommandResult.Success($"Set {block.Code}, readback {readback?.Code}");
-            });
+        //        return TextCommandResult.Success($"Set {block.Code}, readback {readback?.Code}");
+        //    });
     }
 
     private TextCommandResult OnRunTests(TextCommandCallingArgs args) {

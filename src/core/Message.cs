@@ -1,6 +1,9 @@
 using ProtoBuf;
 using Vintagestory.API.Client;
 
+// WIP i should probably have a message sub-directory
+// so i can put all new message in separate files
+// this is just a temporary "It work state"
 namespace TestHarnessMod.Core
 {
     public interface IAckable

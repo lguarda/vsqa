@@ -8,7 +8,7 @@ namespace TestHarnessMod.Core
 {
 public class TestRunner
 {
-    public static async Task<List<(string Name, bool Passed, List<string> Logs)>> RunAll(ICoreServerAPI sapi, IServerNetworkChannel channel, AckTracker ackTracker)
+    public static async Task<List<(string Name, bool Passed, List<string> Logs)>> RunAll(ICoreServerAPI sapi, IServerNetworkChannel channel, AckMsgTracker ackTracker)
     {
         var results = new List<(string, bool, List<string>)>();
         var testTypes = AppDomain.CurrentDomain.GetAssemblies()

@@ -3,6 +3,7 @@ using TestHarnessMod.Core;
 using Vintagestory.API.MathTools;
 using Vintagestory.API.Common;
 using Vintagestory.API.Client;
+using Vintagestory.API.Server;
 
 namespace TestHarnessMod.Tests
 {
@@ -17,7 +18,12 @@ public class ExampleBlockPlaceTest : ModTest
     //}
     public override async Task Run(TestContext ctx)
     {
+
+        IServerPlayer player = ctx.GetPlayer();
+        player.InventoryManager.DiscardAll();
         await ctx.SetGameMode(EnumGameMode.Survival);
+        ctx.SetPlayerActiveSlot(0);
+
         await ctx.GiveItem("game:shovel-steel", 1);
         await ctx.GiveItem("game:pickaxe-steel", 2);
         await ctx.GiveItem("game:knife-generic-steel", 3);
