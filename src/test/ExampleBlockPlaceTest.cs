@@ -56,10 +56,11 @@ public class ExampleBlockPlaceTest : ModTest
             await ctx.LookAtBlock(bpos);
             await ctx.Wait(50);
             await ctx.AssertPlayerSlot(tools[i]);
-            await ctx.Wait(1000);
+            await ctx.Wait(400);
         }
-        await ctx.Wait(1000);
         await ctx.ReleaseAllKey();
+        // THIS one fail randomly because smart cursor clash with refill module this need to be fixed
+        await ctx.AssertPlayerSlot("");
         //await ctx.SendKey(GlKeys.R, true);
         //await ctx.GiveItem("game:forestfloor-2", 0);
         //await ctx.SetTimeOfDay(9f);

@@ -92,6 +92,7 @@ public class TestContext
     public void SetPlayerActiveSlot(int slotNumber) {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
         player?.InventoryManager.ActiveHotbarSlotNumber = slotNumber;
+        player.BroadcastPlayerData(false);
     }
 
     public Task<bool> AssertPlayerSlot(string expectedCode) {
