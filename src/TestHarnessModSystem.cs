@@ -22,9 +22,10 @@ public class TestHarnessModSystem : ModSystem {
 
     private void OnAck(IPlayer fromPlayer, AckMessage msg) {
         var elapsed = sapi.World.ElapsedMilliseconds;
-        Logger.slog($"msg ack:{msg.RequestId} ms:{elapsed}");
-        ackTracker.Complete(msg.RequestId);
+        Logger.slog($"msg ack:{msg.requestId} ms:{elapsed}");
+        ackTracker.Complete(msg.requestId);
     }
+
     public override void StartServerSide(ICoreServerAPI api) {
         sapi = api;
         Logger.sapi = api;
@@ -33,54 +34,132 @@ public class TestHarnessModSystem : ModSystem {
         .RegisterMessageType<AckMessage>()
         .RegisterMessageType<SetLookMessage>()
         .RegisterMessageType<KeyAction>()
+        .RegisterMessageType<MouseAction>()
         .SetMessageHandler<AckMessage>(OnAck);
 
-        sapi.ChatCommands.Create("runtests")
-            .WithDescription("Runs all discovered ModTests")
-            .RequiresPrivilege(Privilege.controlserver)
-            .HandleWith(OnRunTests);
-
-        //sapi.ChatCommands.Create("debugplace")
-        //    .WithDescription("Raw block placement debug, no harness involved")
+        RegisterCommands(sapi);
+        //sapi.ChatCommands.Create("runtests")
+        //    .WithDescription("Runs all discovered ModTests")
         //    .RequiresPrivilege(Privilege.controlserver)
-        //    .HandleWith(args => {
-        //        var pos = SpawnRelative(0, 0, 5);
+        //    .HandleWith(OnRunTests);
+    }
+    public void RegisterCommands(ICoreServerAPI sapi)
+    {
+        var parsers = sapi.ChatCommands.Parsers;
 
-        //        var block = sapi.World.GetBlock(new AssetLocation("game:forestfloor-2"));
+        sapi.ChatCommands.Create("runtests")
+            .WithDescription("Runs all tests, a specific fixture, or a specific test (Fixture.Method).")
+            .RequiresPrivilege(Privilege.controlserver)
+            .WithArgs(parsers.OptionalWord("filter"))
+            .HandleWith(OnRunTests);
+sapi.ChatCommands.Create("resetchunks")
+    .WithDescription("Deletes chunks in a radius around world origin")
+    .RequiresPrivilege(Privilege.controlserver)
+    .HandleWith(args =>
+    {
+        int radius = 6;
+        int originCx = sapi.WorldManager.MapSizeX / (2 * sapi.WorldManager.ChunkSize);
+        int originCz = sapi.WorldManager.MapSizeZ / (2 * sapi.WorldManager.ChunkSize);
 
-        //        sapi.Logger.Notification($"Resolved block: id={block?.Id}, code={block?.Code}");
+        var farAway = new Vec3d(0, 300, 0); // well outside radius, high up
 
-        //        sapi.World.BlockAccessor.SetBlock(block.Id, pos);
+        foreach (IServerPlayer player in sapi.World.AllOnlinePlayers)
+        {
+            player.Entity.TeleportTo(farAway);
+        }
 
-        //        var readback = sapi.World.BlockAccessor.GetBlock(pos);
-        //        sapi.Logger.Notification($"Immediate readback: {readback?.Code} {pos}");
+        for (int cx = originCx - radius; cx <= originCx + radius; cx++)
+        {
+            for (int cz = originCz - radius; cz <= originCz + radius; cz++)
+            {
+                sapi.WorldManager.DeleteChunkColumn(cx, cz);
+            }
+        }
 
-        //        return TextCommandResult.Success($"Set {block.Code}, readback {readback?.Code}");
-        //    });
+        sapi.Event.RegisterCallback(dt =>
+        {
+            foreach (IServerPlayer player in sapi.World.AllOnlinePlayers)
+            {
+                player.CurrentChunkSentRadius = 0;
+                var pos = sapi.World.DefaultSpawnPosition.AsBlockPos.AddCopy(0, 2, 0);
+                player.Entity.TeleportTo(pos.ToVec3d());
+            }
+        }, 1000); // delay so delete has time to actually process
+
+        return TextCommandResult.Success($"Deleted chunks in {radius} chunk radius around origin.");
+    });
     }
 
-    private TextCommandResult OnRunTests(TextCommandCallingArgs args) {
-        _ = RunTestsAsync(args);
-        return TextCommandResult.Success("Running tests...");
+    private TextCommandResult OnRunTests(TextCommandCallingArgs args)
+    {
+        string targetFixture = null;
+        string targetTest = null;
+
+        if (!args.Parsers[0].IsMissing)
+        {
+            string filter = (string)args[0];
+
+            // Handles "ExampleBlockPlaceTest.TestSecondaryBlockInteraction"
+            if (filter.Contains('.'))
+            {
+                var parts = filter.Split('.', 2);
+                targetFixture = parts[0];
+                targetTest = parts[1];
+            }
+            else
+            {
+                // Handles "ExampleBlockPlaceTest"
+                targetFixture = filter;
+            }
+        }
+
+        _ = RunTestsAsync(args, targetFixture, targetTest);
+
+        string response = "Running tests";
+        if (!string.IsNullOrEmpty(targetFixture) && !string.IsNullOrEmpty(targetTest))
+        {
+            response += $" for {targetFixture}.{targetTest}";
+        }
+        else if (!string.IsNullOrEmpty(targetFixture))
+        {
+            response += $" for fixture {targetFixture}";
+        }
+
+        return TextCommandResult.Success($"{response}...");
     }
 
-    private async Task RunTestsAsync(TextCommandCallingArgs args) {
-        var results = await TestRunner.RunAll(sapi, serverChannel, ackTracker);
+    private async Task RunTestsAsync(TextCommandCallingArgs args, string targetFixture, string targetTest)
+    {
+        var results = await TestRunner.RunAll(sapi, serverChannel, ackTracker, targetFixture, targetTest);
 
-        foreach (var (name, passed, logs) in results) {
+        if (results.Count == 0)
+        {
+            if (args.Caller.Player != null)
+            {
+                sapi.SendMessage(args.Caller.Player, args.Caller.FromChatGroupId,
+                                 "No matching tests found.",
+                                 EnumChatType.CommandError);
+            }
+            return;
+        }
+
+        foreach (var (name, passed, logs) in results)
+        {
             string status = passed ? "PASS" : "FAIL";
             sapi.Logger.Notification($"[TestHarness] {status} - {name}");
             foreach (var line in logs)
                 sapi.Logger.Notification($"[TestHarness]    {line}");
         }
 
-        int passedCount = results.FindAll(r => r.Passed).Count;
+        int passedCount = results.Count(r => r.Passed);
 
-        if (args.Caller.Player != null) {
+        if (args.Caller.Player != null)
+        {
             sapi.SendMessage(args.Caller.Player, args.Caller.FromChatGroupId,
                              $"Tests complete: {passedCount}/{results.Count} passed. See server log for details.",
                              EnumChatType.CommandSuccess);
         }
     }
+
 }
 }

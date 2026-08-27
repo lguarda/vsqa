@@ -25,12 +25,14 @@ namespace TestHarnessMod
                 .RegisterMessageType<SetLookMessage>()
                 .SetMessageHandler<SetLookMessage>(OnSetLook)
                 .RegisterMessageType<KeyAction>()
-                .SetMessageHandler<KeyAction>(OnKeyAction);
+                .SetMessageHandler<KeyAction>(OnKeyAction)
+                .RegisterMessageType<MouseAction>()
+                .SetMessageHandler<MouseAction>(OnMouseAction);
 
         }
         private void AckIt(IAckable msg) {
-            if (msg.RequestId != 0) {
-                channel.SendPacket(new AckMessage { RequestId = msg.RequestId });
+            if (msg.requestId != 0) {
+                channel.SendPacket(new AckMessage { requestId = msg.requestId });
             }
         }
         private void OnSetLook(SetLookMessage msg)
@@ -39,66 +41,34 @@ namespace TestHarnessMod
             // I think this one works it bugged buffore
             // becaise set look after without delay reset this
             // TODO TRY IT OUT OR REMOVE THIS COMMENT
-            //capi.Input.MousePitch = msg.Pitch;
-            capi.Input.MouseYaw = msg.Yaw;
-            entity.Pos.Pitch = msg.Pitch;
+            //capi.Input.MousePitch = msg.pitch;
+            capi.Input.MouseYaw = msg.yaw;
+            entity.Pos.Pitch = msg.pitch;
 
             var elapsed = capi.World.ElapsedMilliseconds;
             AckIt(msg);
 
         }
 
+        private void OnMouseAction(MouseAction msg)
+        {
+            Logger.clog($"Fake Mouse:{msg.btn} down:{msg.down}", true);
+            MouseSimulator.Click(capi, msg.btn, msg.down);
+            AckIt(msg);
+        }
+
         private void OnKeyAction(KeyAction msg)
         {
-            if (msg.ReleaseAll) {
+            if (msg.releaseAll) {
                 Logger.clog($"Release all key press");
                 keySimulator.ReleaseAllKeys();
             }
             else {
-                Logger.clog($"Fake key:{msg.KeyCode} up:{msg.KeyUp}", true);
-                keySimulator.SetFakeKeyState((GlKeys)msg.KeyCode, msg.KeyUp);
+                Logger.clog($"Fake key:{msg.code} pressed:{msg.pressed}", true);
+                keySimulator.SetFakeKeyState((GlKeys)msg.code, msg.pressed);
             }
+            AckIt(msg);
         }
-
-        // Don't work at all
-        private void MouseButton(
-            int x,
-            int y,
-            EnumMouseButton button,
-            bool up)
-        {
-            // Left = 0,
-            // Middle = 1,
-            // Right = 2,
-            // Button4 = 3,
-            // Button5 = 4,
-            // Button6 = 5,
-            // Button7 = 6,
-            // Button8 = 7,
-            // /// <summary>
-            // /// Used to signal to event handlers, but not actually a button: activated when the wheel is scrolled.
-            // /// </summary>
-            // Wheel = 13,
-            // None = 255
-
-            var mouseEvent = new MouseEvent(x, y, button, 0);
-            string fn = up ? "TriggerMouseDown" : "TriggerMouseUp";
-            var method = capi.Event.GetType().GetMethod(
-                fn,
-                BindingFlags.Instance |
-                BindingFlags.Public |
-                BindingFlags.NonPublic
-            );
-
-            if (method == null)
-                throw new Exception("TriggerMouseDown not found");
-
-            method.Invoke(
-                capi.Event,
-                new object[] { mouseEvent }
-            );
-        }
-
     }
 }
 

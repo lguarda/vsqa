@@ -26,7 +26,7 @@ public class TestContext
 
     private async Task SendLook(IServerPlayer player, float yaw, float pitch, int timeoutMs = 2000)
     {
-        await SendPacketWithAck(channel, new SetLookMessage { Yaw = yaw, Pitch = pitch }, player);
+        await SendPacketWithAck(channel, new SetLookMessage(yaw, pitch), player);
     }
 
     // Helper to get Block pos from world coordinate
@@ -95,6 +95,42 @@ public class TestContext
         player.BroadcastPlayerData(false);
     }
 
+    public Task ResetChunk()
+    {
+        var tcs = new TaskCompletionSource();
+
+        int radius = 6;
+        int originCx = sapi.WorldManager.MapSizeX / (2 * sapi.WorldManager.ChunkSize);
+        int originCz = sapi.WorldManager.MapSizeZ / (2 * sapi.WorldManager.ChunkSize);
+        var farAway = new Vec3d(0, 300, 0);
+
+        foreach (IServerPlayer player in sapi.World.AllOnlinePlayers)
+        {
+            player.Entity.TeleportTo(farAway);
+        }
+
+        for (int cx = originCx - radius; cx <= originCx + radius; cx++)
+        {
+            for (int cz = originCz - radius; cz <= originCz + radius; cz++)
+            {
+                sapi.WorldManager.DeleteChunkColumn(cx, cz);
+            }
+        }
+
+        sapi.Event.RegisterCallback(dt =>
+        {
+            foreach (IServerPlayer player in sapi.World.AllOnlinePlayers)
+            {
+                player.CurrentChunkSentRadius = 0;
+                var pos = sapi.World.DefaultSpawnPosition.AsBlockPos.AddCopy(0, 2, 0);
+                player.Entity.TeleportTo(pos.ToVec3d());
+            }
+            tcs.SetResult();
+        }, 1000);
+
+        return tcs.Task;
+    }
+
     public Task<bool> AssertPlayerSlot(string expectedCode) {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
         if (player == null) { Fail("No online player"); return Task.FromResult(false); }
@@ -125,33 +161,38 @@ public class TestContext
         return Task.CompletedTask;
     }
 
-    public Task ReleaseAllKey() {
+    public async Task ReleaseAllKey() {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
-        if (player == null) { Fail("No online player to rotate"); return Task.CompletedTask; }
-        channel.SendPacket(new KeyAction(true), player);
-        return Task.CompletedTask;
+        if (player == null) { Fail("No online player to rotate"); return ; }
+        await SendPacketWithAck(channel, new KeyAction(true), player);
     }
 
-    public Task SendKey(GlKeys key, bool keyUp) {
+    public async Task SendKey(GlKeys key, bool pressed) {
         try
         {
             var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
-            if (player == null) { Fail("No online player to rotate"); return Task.CompletedTask; }
-            Log($"Server: button:{key}, state: {keyUp}");
-            channel.SendPacket(new KeyAction(key, keyUp), player);
+            if (player == null) { Fail("No online player to rotate"); return ; }
+            Log($"Server: button:{key}, pressed: {pressed}");
+            await SendPacketWithAck(channel, new  KeyAction(key, pressed), player);
         }
         catch (Exception ex)
         {
             Log($"Packet send failed: {ex}");
         }
-        return Task.CompletedTask;
+        return ;
+    }
+
+    public async Task SendMouseButton(EnumMouseButton btn, bool down) {
+        var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
+        if (player == null) { Fail("No player to rotate"); return; }
+        await SendPacketWithAck(channel, new MouseAction { btn = btn, down = down }, player);
     }
 
     // Todo move this out? maybe i will need this for client as well
     public async Task<bool> SendPacketWithAck<T>(IServerNetworkChannel channel, T message, IServerPlayer player, int timeoutMs = 2000) where T : IAckable
     {
         int id = ackTracker.Register(out var tcs);
-        message.RequestId = id;
+        message.requestId = id;
         channel.SendPacket(message, player);
 
         var winner = await Task.WhenAny(tcs.Task, Task.Delay(timeoutMs));

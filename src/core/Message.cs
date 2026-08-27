@@ -1,5 +1,6 @@
 using ProtoBuf;
 using Vintagestory.API.Client;
+using Vintagestory.API.Common;
 
 // WIP i should probably have a message sub-directory
 // so i can put all new message in separate files
@@ -8,34 +9,34 @@ namespace TestHarnessMod.Core
 {
     public interface IAckable
     {
-        int RequestId { get; set; }
+        int requestId { get; set; }
     }
 
     [ProtoContract]
     public class AckMessage
     {
         [ProtoMember(1)]
-        public int RequestId;
+        public int requestId;
 
         public AckMessage() { }
-        public AckMessage(int requestId) { RequestId = requestId; }
+        public AckMessage(int rid) { requestId = rid; }
     }
 
     [ProtoContract]
     public class SetLookMessage : IAckable
     {
         [ProtoMember(1)]
-        public int RequestId { get; set; }
+        public int requestId { get; set; }
         [ProtoMember(2)]
-        public float Yaw;
+        public float yaw;
         [ProtoMember(3)]
-        public float Pitch;
+        public float pitch;
 
         public SetLookMessage() { }
-        public SetLookMessage(float yaw, float pitch)
+        public SetLookMessage(float y, float p)
         {
-            Yaw = yaw;
-            Pitch = pitch;
+            yaw = y;
+            pitch = p;
         }
     }
 
@@ -43,38 +44,49 @@ namespace TestHarnessMod.Core
     public class KeyAction : IAckable
     {
         [ProtoMember(1)]
-        public int RequestId { get; set; }
+        public int requestId { get; set; }
         [ProtoMember(2)]
-        public bool Ctrl;
+        public bool ctlr;
         [ProtoMember(3)]
-        public bool Alt;
+        public bool alt;
         [ProtoMember(4)]
-        public bool Shift;
+        public bool shift;
         [ProtoMember(5)]
-        public bool KeyUp;
+        public bool pressed;
         [ProtoMember(6)]
-        public int KeyCode;
+        public int code;
         [ProtoMember(7)]
-        public bool ReleaseAll;
+        public bool releaseAll;
 
         public KeyAction() { }
         public KeyAction(bool release)
         {
-            KeyCode = 0;
-            KeyUp = false;
-            Ctrl = false;
-            Alt = false;
-            Shift = false;
-            ReleaseAll = true;
+            code = 0;
+            pressed = false;
+            ctlr = false;
+            alt = false;
+            shift = false;
+            releaseAll = true;
         }
-        public KeyAction(GlKeys code, bool up)
+        public KeyAction(GlKeys k, bool p)
         {
-            KeyCode = (int)code;
-            KeyUp = up;
-            Ctrl = false;
-            Alt = false;
-            Shift = false;
-            ReleaseAll = false;
+            code = (int)k;
+            pressed = p;
+            ctlr = false;
+            alt = false;
+            shift = false;
+            releaseAll = false;
         }
+    }
+
+    [ProtoContract]
+    public class MouseAction : IAckable
+    {
+        [ProtoMember(1)]
+        public int requestId { get; set; }
+        [ProtoMember(2)]
+        public EnumMouseButton btn;
+        [ProtoMember(3)]
+        public bool down;
     }
 }

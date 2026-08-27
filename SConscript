@@ -1,7 +1,8 @@
 Import('env')
 from pathlib import Path
 
-src_dir = Path('./src')
+src_dir = Path("./src").resolve()
+
 vsqa_sources = [
     str(p) for p in src_dir.rglob("*.cs")
 ]
