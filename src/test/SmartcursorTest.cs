@@ -8,7 +8,7 @@ using System;
 namespace TestHarnessMod.Tests
 {
     [TestFixture]
-    public class ExampleBlockPlaceTest
+    public class SmartCursor
     {
         // hotbar 0 to 9 is real hotbar
         // hotbar 11 is offhands
@@ -37,9 +37,28 @@ namespace TestHarnessMod.Tests
             }
         }
 
-        //[Test("Place Peat Bricks With Ctrl+RightClick")]
         [Test]
-        public async Task TestPeatBrickPlacement(TestContext ctx)
+        public async Task DropNoRefill(TestContext ctx)
+        {
+            await ctx.SetGameMode(EnumGameMode.Survival);
+            IServerPlayer player = ctx.GetPlayer();
+            player.InventoryManager.DiscardAll();
+
+            try {
+                ctx.SetPlayerActiveSlot(0);
+                await ctx.GiveItem("game:peatbrick", 0);
+                await ctx.GiveItem("game:peatbrick", 1);
+                await ctx.SendKey(GlKeys.Q, true);
+                await ctx.SendKey(GlKeys.Q, false);
+                await ctx.AssertActiveSlot("");
+            } catch (Exception ex)
+            {
+                Logger.slog($"Test failed with {ex}");
+            }
+        }
+
+        [Test]
+        public async Task Refill(TestContext ctx)
         {
             //await ctx.ResetChunk();
             IServerPlayer player = ctx.GetPlayer();
@@ -64,8 +83,31 @@ namespace TestHarnessMod.Tests
             await ctx.AssertActiveSlot("game:peatbrick");
         }
 
-        [Test] // Uses method name automatically if no name string is provided
-        public async Task TestSecondaryBlockInteraction(TestContext ctx)
+        [Test]
+        public async Task Pipette(TestContext ctx) {
+            IServerPlayer player = ctx.GetPlayer();
+            player.InventoryManager.DiscardAll();
+
+            ctx.SetPlayerActiveSlot(0);
+            var pos = ctx.SpawnRelative(0, 0, 20);
+            await ctx.Teleport(pos);
+            await ctx.Wait(100);
+            var bpos = ctx.SpawnRelative(1, 0, 20);
+            await ctx.PlaceBlock(bpos, "game:forestfloor-2");
+            await ctx.GiveItem("game:forestfloor-2", 1);
+            await ctx.LookAtBlock(bpos);
+            await ctx.SendKey(GlKeys.Y, true);
+            await ctx.SendKey(GlKeys.Y, false);
+            await ctx.AssertActiveSlot("game:forestfloor-2");
+            await ctx.AssertPlayerSlot("", 1, "hotbar");
+            await ctx.SendKey(GlKeys.Y, true);
+            await ctx.SendKey(GlKeys.Y, false);
+            await ctx.AssertActiveSlot("");
+            await ctx.AssertPlayerSlot("game:forestfloor-2", 1, "hotbar");
+        }
+
+        [Test]
+        public async Task Smartcursor(TestContext ctx)
         {
             //await ctx.ResetChunk();
             ICoreServerAPI sapi = ctx.GetSapi();
