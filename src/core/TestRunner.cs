@@ -54,7 +54,7 @@ namespace TestHarnessMod.Core
                     string testName = $"{type.Name}.{(string.IsNullOrEmpty(attr.Name) ? method.Name : attr.Name)}";
 
                     // Filter by specific test method if specified
-                    if (!string.IsNullOrEmpty(targetTest) && !method.Name.Equals(targetTest, StringComparison.OrdinalIgnoreCase))
+                    if (!string.IsNullOrEmpty(targetTest) && !method.Name.StartsWith(targetTest, StringComparison.OrdinalIgnoreCase))
                         continue;
 
                     var instance = Activator.CreateInstance(type);

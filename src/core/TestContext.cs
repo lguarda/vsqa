@@ -45,7 +45,7 @@ public class TestContext
     {
         var actual = sapi.World.BlockAccessor.GetBlock(pos);
         bool ok = actual?.Code?.ToString() == expectedCode;
-        if (!ok) Fail($"Expected {expectedCode} at {pos}, got {actual?.Code}");
+        if (!ok) Fail($"Expected \"{expectedCode}\" at {pos}, got \"{actual?.Code}\"");
         return Task.FromResult(ok);
     }
 
@@ -63,7 +63,8 @@ public class TestContext
         return Task.CompletedTask;
     }
 
-    public Task GiveItem(string code, int slotIndex)
+    //"backpack"
+    public Task GiveItem(string code, int slotIndex, string invName = "hotbar")
     {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
         if (player == null) { Fail("No online player for inventory"); return Task.CompletedTask; }
@@ -74,8 +75,8 @@ public class TestContext
 
         if (collectible == null) { Fail($"Unknown item/block {code}"); return Task.CompletedTask; }
 
-        var hotbar = player.InventoryManager.GetHotbarInventory();
-        var slot = hotbar[slotIndex];
+        var inv = player.InventoryManager.GetOwnInventory(invName);
+        var slot = inv[slotIndex];
         slot.Itemstack = new ItemStack(collectible);
         slot.MarkDirty();
         return Task.CompletedTask;
@@ -131,16 +132,23 @@ public class TestContext
         return tcs.Task;
     }
 
-    public Task<bool> AssertPlayerSlot(string expectedCode) {
+    public Task<bool> AssertPlayerSlot(string expectedCode , int slotIndex, string invName = "hotbar") {
         var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
         if (player == null) { Fail("No online player"); return Task.FromResult(false); }
 
-        var ActiveSlot = player.InventoryManager.ActiveHotbarSlot;
-        string actualCode = ActiveSlot?.Itemstack?.Collectible?.Code?.ToString() ?? "";
+        var inv = player.InventoryManager.GetOwnInventory(invName);
+        var slot = inv[slotIndex];
+        string actualCode = slot?.Itemstack?.Collectible?.Code?.ToString() ?? "";
 
         bool ok = actualCode == expectedCode;
-        if (!ok) Fail($"Expected {expectedCode} got {actualCode}");
+        if (!ok) Fail($"Expected \"{expectedCode}\" got \"{actualCode}\"");
         return Task.FromResult(true);
+    }
+
+    public Task<bool> AssertActiveSlot(string expectedCode) {
+        var player = sapi.World.AllOnlinePlayers.FirstOrDefault() as IServerPlayer;
+        if (player == null) { Fail("No online player"); return Task.FromResult(false); }
+        return AssertPlayerSlot(expectedCode, player.InventoryManager.ActiveHotbarSlotNumber);
     }
 
     public Task SetGameMode(EnumGameMode mode)

@@ -3,13 +3,42 @@ using Vintagestory.API.Client;
 using Vintagestory.API.Common;
 using Vintagestory.API.Server;
 using TestHarnessMod.Core;
+using System;
 
 namespace TestHarnessMod.Tests
 {
     [TestFixture]
     public class ExampleBlockPlaceTest
     {
-        [Test("Place Peat Bricks With Ctrl+RightClick")]
+        // hotbar 0 to 9 is real hotbar
+        // hotbar 11 is offhands
+        // hotbar 10?
+        // backpack 0-3 is backpack slot
+        // backpack 4-X is backpack content
+        // runtests ExampleBlockPlaceTest.PutItInTheBag
+        [Test]
+        public async Task PutItInTheBag(TestContext ctx)
+        {
+            await ctx.SetGameMode(EnumGameMode.Survival);
+            IServerPlayer player = ctx.GetPlayer();
+            player.InventoryManager.DiscardAll();
+
+            try {
+                ctx.SetPlayerActiveSlot(0);
+                await ctx.GiveItem("game:backpack-normal", 0, "backpack");
+                await ctx.GiveItem("game:peatbrick", 0);
+                await ctx.GiveItem("game:peatbrick", 1);
+                await ctx.SendKey(GlKeys.B, true);
+                await ctx.SendKey(GlKeys.B, false);
+                await ctx.AssertActiveSlot("");
+            } catch (Exception ex)
+            {
+                Logger.slog($"Test failed with {ex}");
+            }
+        }
+
+        //[Test("Place Peat Bricks With Ctrl+RightClick")]
+        [Test]
         public async Task TestPeatBrickPlacement(TestContext ctx)
         {
             //await ctx.ResetChunk();
@@ -32,7 +61,7 @@ namespace TestHarnessMod.Tests
             await ctx.SendMouseButton(EnumMouseButton.Right, false);
             await ctx.SendKey(GlKeys.ControlLeft, false);
             await ctx.Wait(200);
-            await ctx.AssertPlayerSlot("game:peatbrick");
+            await ctx.AssertActiveSlot("game:peatbrick");
         }
 
         [Test] // Uses method name automatically if no name string is provided
@@ -100,10 +129,14 @@ namespace TestHarnessMod.Tests
                 await ctx.Wait(100);
                 await ctx.LookAtBlock(bpos);
                 await ctx.Wait(100);
-                await ctx.AssertPlayerSlot(tools[i]);
+                await ctx.AssertActiveSlot(tools[i]);
                 await ctx.Wait(400);
             }
             await ctx.ReleaseAllKey();
+                await ctx.Wait(100);
+            await ctx.AssertActiveSlot("");
+            await ctx.Wait(500);
+            await ctx.AssertActiveSlot("");
         }
     }
 }
@@ -139,7 +172,7 @@ namespace TestHarnessMod.Tests
 //        await ctx.SendMouseButton(EnumMouseButton.Right, true);
 //        await ctx.SendMouseButton(EnumMouseButton.Right, false);
 //        await ctx.SendKey(GlKeys.ControlLeft, false);
-//        await ctx.AssertPlayerSlot("game:peatbrick")
+//        await ctx.AssertActiveSlot("game:peatbrick")
 //    }
 //    /*
 //    public override async Task Run(TestContext ctx)
@@ -205,12 +238,12 @@ namespace TestHarnessMod.Tests
 //            await ctx.Wait(100);
 //            await ctx.LookAtBlock(bpos);
 //            await ctx.Wait(50);
-//            await ctx.AssertPlayerSlot(tools[i]);
+//            await ctx.AssertActiveSlot(tools[i]);
 //            await ctx.Wait(400);
 //        }
 //        await ctx.ReleaseAllKey();
 //        // THIS one fail randomly because smart cursor clash with refill module this need to be fixed
-//        await ctx.AssertPlayerSlot("");
+//        await ctx.AssertActiveSlot("");
 //        //await ctx.SendKey(GlKeys.R, false);
 //        //await ctx.GiveItem("game:forestfloor-2", 0);
 //        //await ctx.SetTimeOfDay(9f);
